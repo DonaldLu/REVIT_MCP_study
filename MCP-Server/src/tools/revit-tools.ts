@@ -296,6 +296,74 @@ export function registerRevitTools(): Tool[] {
                 required: ["x", "y"],
             },
         },
+
+        // 14. 取得家具類型
+        {
+            name: "get_furniture_types",
+            description: "取得專案中已載入的家具類型清單，包含名稱和族群資訊。",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    category: {
+                        type: "string",
+                        description: "家具類別篩選（如：椅子、桌子、床），選填",
+                    },
+                },
+            },
+        },
+
+        // 15. 放置家具
+        {
+            name: "place_furniture",
+            description: "在指定位置放置家具實例。",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    x: {
+                        type: "number",
+                        description: "X 座標（公釐）",
+                    },
+                    y: {
+                        type: "number",
+                        description: "Y 座標（公釐）",
+                    },
+                    furnitureType: {
+                        type: "string",
+                        description: "家具類型名稱（需與 get_furniture_types 回傳的名稱一致）",
+                    },
+                    level: {
+                        type: "string",
+                        description: "樓層名稱",
+                        default: "Level 1",
+                    },
+                    rotation: {
+                        type: "number",
+                        description: "旋轉角度（度），預設 0",
+                        default: 0,
+                    },
+                },
+                required: ["x", "y", "furnitureType"],
+            },
+        },
+
+        // 16. 取得房間資訊
+        {
+            name: "get_room_info",
+            description: "取得房間詳細資訊，包含中心點座標和邊界範圍。可用於智慧放置家具。",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    roomId: {
+                        type: "number",
+                        description: "房間 Element ID（選填，如果知道的話）",
+                    },
+                    roomName: {
+                        type: "string",
+                        description: "房間名稱（選填，用於搜尋）",
+                    },
+                },
+            },
+        },
     ];
 }
 

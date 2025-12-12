@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.UI;
 using Newtonsoft.Json.Linq;
 using RevitMCP.Models;
@@ -66,6 +67,18 @@ namespace RevitMCP.Core
                     
                     case "create_column":
                         result = CreateColumn(parameters);
+                        break;
+                    
+                    case "get_furniture_types":
+                        result = GetFurnitureTypes(parameters);
+                        break;
+                    
+                    case "place_furniture":
+                        result = PlaceFurniture(parameters);
+                        break;
+                    
+                    case "get_room_info":
+                        result = GetRoomInfo(parameters);
                         break;
                     
                     default:
@@ -508,6 +521,191 @@ namespace RevitMCP.Core
                     Message = $"成功建立柱子，ID: {column.Id.IntegerValue}"
                 };
             }
+        }
+
+        /// <summary>
+        /// 取得家具類型
+        /// </summary>
+        private object GetFurnitureTypes(JObject parameters)
+        {
+            Document doc = _uiApp.ActiveUIDocument.Document;
+            string categoryFilter = parameters["category"]?.Value<string>();
+
+            var furnitureTypes = new FilteredElementCollector(doc)
+                .OfClass(typeof(FamilySymbol))
+                .OfCategory(BuiltInCategory.OST_Furniture)
+                .Cast<FamilySymbol>()
+                .Select(fs => new
+                {
+                    ElementId = fs.Id.IntegerValue,
+                    TypeName = fs.Name,
+                    FamilyName = fs.FamilyName,
+                    IsActive = fs.IsActive
+                })
+                .Where(ft => string.IsNullOrEmpty(categoryFilter) ||
+                             ft.FamilyName.Contains(categoryFilter) ||
+                             ft.TypeName.Contains(categoryFilter))
+                .OrderBy(ft => ft.FamilyName)
+                .ThenBy(ft => ft.TypeName)
+                .ToList();
+
+            return new
+            {
+                Count = furnitureTypes.Count,
+                FurnitureTypes = furnitureTypes
+            };
+        }
+
+        /// <summary>
+        /// 放置家具
+        /// </summary>
+        private object PlaceFurniture(JObject parameters)
+        {
+            Document doc = _uiApp.ActiveUIDocument.Document;
+
+            double x = parameters["x"]?.Value<double>() ?? 0;
+            double y = parameters["y"]?.Value<double>() ?? 0;
+            string furnitureTypeName = parameters["furnitureType"]?.Value<string>();
+            string levelName = parameters["level"]?.Value<string>() ?? "Level 1";
+            double rotation = parameters["rotation"]?.Value<double>() ?? 0;
+
+            // 轉換座標（公釐 → 英尺）
+            XYZ location = new XYZ(x / 304.8, y / 304.8, 0);
+
+            using (Transaction trans = new Transaction(doc, "放置家具"))
+            {
+                trans.Start();
+
+                // 取得樓層
+                Level level = new FilteredElementCollector(doc)
+                    .OfClass(typeof(Level))
+                    .Cast<Level>()
+                    .FirstOrDefault(l => l.Name == levelName);
+
+                if (level == null)
+                {
+                    level = new FilteredElementCollector(doc)
+                        .OfClass(typeof(Level))
+                        .Cast<Level>()
+                        .OrderBy(l => l.Elevation)
+                        .FirstOrDefault();
+                }
+
+                if (level == null)
+                {
+                    throw new Exception($"找不到樓層: {levelName}");
+                }
+
+                // 取得家具類型
+                FamilySymbol furnitureSymbol = new FilteredElementCollector(doc)
+                    .OfClass(typeof(FamilySymbol))
+                    .OfCategory(BuiltInCategory.OST_Furniture)
+                    .Cast<FamilySymbol>()
+                    .FirstOrDefault(fs => fs.Name == furnitureTypeName ||
+                                          fs.FamilyName.Contains(furnitureTypeName));
+
+                if (furnitureSymbol == null)
+                {
+                    throw new Exception($"找不到家具類型: {furnitureTypeName}");
+                }
+
+                // 確保 FamilySymbol 已啟用
+                if (!furnitureSymbol.IsActive)
+                {
+                    furnitureSymbol.Activate();
+                    doc.Regenerate();
+                }
+
+                // 放置家具
+                FamilyInstance furniture = doc.Create.NewFamilyInstance(
+                    location,
+                    furnitureSymbol,
+                    level,
+                    Autodesk.Revit.DB.Structure.StructuralType.NonStructural
+                );
+
+                // 旋轉
+                if (Math.Abs(rotation) > 0.001)
+                {
+                    Line axis = Line.CreateBound(location, location + XYZ.BasisZ);
+                    ElementTransformUtils.RotateElement(doc, furniture.Id, axis, rotation * Math.PI / 180);
+                }
+
+                trans.Commit();
+
+                return new
+                {
+                    ElementId = furniture.Id.IntegerValue,
+                    FurnitureType = furnitureSymbol.Name,
+                    FamilyName = furnitureSymbol.FamilyName,
+                    Level = level.Name,
+                    LocationX = x,
+                    LocationY = y,
+                    Rotation = rotation,
+                    Message = $"成功放置家具，ID: {furniture.Id.IntegerValue}"
+                };
+            }
+        }
+
+        /// <summary>
+        /// 取得房間資訊
+        /// </summary>
+        private object GetRoomInfo(JObject parameters)
+        {
+            Document doc = _uiApp.ActiveUIDocument.Document;
+            int? roomId = parameters["roomId"]?.Value<int>();
+            string roomName = parameters["roomName"]?.Value<string>();
+
+            Room room = null;
+
+            if (roomId.HasValue)
+            {
+                room = doc.GetElement(new ElementId(roomId.Value)) as Room;
+            }
+            else if (!string.IsNullOrEmpty(roomName))
+            {
+                room = new FilteredElementCollector(doc)
+                    .OfCategory(BuiltInCategory.OST_Rooms)
+                    .WhereElementIsNotElementType()
+                    .Cast<Room>()
+                    .FirstOrDefault(r => r.Name.Contains(roomName) || 
+                                         r.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString()?.Contains(roomName) == true);
+            }
+
+            if (room == null)
+            {
+                throw new Exception(roomId.HasValue 
+                    ? $"找不到房間 ID: {roomId}" 
+                    : $"找不到房間名稱包含: {roomName}");
+            }
+
+            // 取得房間位置點
+            LocationPoint locPoint = room.Location as LocationPoint;
+            XYZ center = locPoint?.Point ?? XYZ.Zero;
+
+            // 取得 BoundingBox
+            BoundingBoxXYZ bbox = room.get_BoundingBox(null);
+            
+            // 取得面積
+            double area = room.Area * 0.092903; // 平方英尺 → 平方公尺
+
+            return new
+            {
+                ElementId = room.Id.IntegerValue,
+                Name = room.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString(),
+                Number = room.Number,
+                Level = doc.GetElement(room.LevelId)?.Name,
+                Area = Math.Round(area, 2),
+                CenterX = Math.Round(center.X * 304.8, 2),
+                CenterY = Math.Round(center.Y * 304.8, 2),
+                BoundingBox = bbox != null ? new
+                {
+                    MinX = Math.Round(bbox.Min.X * 304.8, 2),
+                    MinY = Math.Round(bbox.Min.Y * 304.8, 2),
+                    MaxX = Math.Round(bbox.Max.X * 304.8, 2),
+                    MaxY = Math.Round(bbox.Max.Y * 304.8, 2)
+                } : null
+            };
         }
 
         #endregion

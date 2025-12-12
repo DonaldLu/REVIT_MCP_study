@@ -15,6 +15,30 @@
 
 透過 Model Context Protocol (MCP) 讓 AI 語言模型直接控制 Autodesk Revit，實現 AI 驅動的 BIM 工作流程。
 
+> [!CAUTION]
+> ## ⚠️ Git Pull 後必讀：重新編譯 Revit Add-in
+> 
+> 如果您執行了 `git pull` 更新專案，且更新內容包含 **C# 程式碼變更**（`MCP/MCP/*.cs` 檔案），**必須重新編譯並部署 Revit Add-in DLL**，否則新功能將無法使用！
+> 
+> **快速步驟：**
+> 1. **關閉 Revit**（否則無法覆蓋 DLL）
+> 2. 執行編譯：
+>    ```powershell
+>    cd "您的專案路徑/MCP/MCP"
+>    dotnet build -c Release
+>    ```
+> 3. 複製 DLL 到 Revit Addins 資料夾：
+>    ```powershell
+>    Copy-Item "bin/Release/RevitMCP.dll" "C:\ProgramData\Autodesk\Revit\Addins\2022\RevitMCP\" -Force
+>    ```
+> 4. 重新啟動 Revit
+> 
+> | 更新類型 | 需重新編譯 DLL？ | 需重啟 Revit？ |
+> |----------|:---------------:|:-------------:|
+> | C# 程式碼 (`MCP/MCP/*.cs`) | ✅ 是 | ✅ 是 |
+> | MCP Server (`MCP-Server/*.ts`) | ❌ 否 | ❌ 否（只需重啟 MCP Server） |
+> | 設定檔 (`*.json`, `*.addin`) | ❌ 否 | ⚠️ 視情況 |
+
 ## 🎯 功能特色
 
 - **AI 直接控制 Revit** - 透過自然語言指令操作 Revit
