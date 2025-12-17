@@ -610,6 +610,80 @@ export function registerRevitTools(): Tool[] {
                 required: ["category"],
             },
         },
+
+        // 27. 覆寫元素圖形顯示
+        {
+            name: "override_element_graphics",
+            description: "在指定視圖中覆寫元素的圖形顯示（填滿顏色、圖樣、線條顏色等）。適用於平面圖中標記不同狀態的牆體或其他元素。",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    elementId: {
+                        type: "number",
+                        description: "要覆寫的元素 ID",
+                    },
+                    viewId: {
+                        type: "number",
+                        description: "視圖 ID（若不指定則使用當前視圖）",
+                    },
+                    surfaceFillColor: {
+                        type: "object",
+                        description: "表面填滿顏色 RGB (0-255)",
+                        properties: {
+                            r: { type: "number", minimum: 0, maximum: 255 },
+                            g: { type: "number", minimum: 0, maximum: 255 },
+                            b: { type: "number", minimum: 0, maximum: 255 },
+                        },
+                    },
+                    surfacePatternId: {
+                        type: "number",
+                        description: "表面填充圖樣 ID（-1 表示使用實心填滿，0 表示不設定圖樣）",
+                        default: -1,
+                    },
+                    lineColor: {
+                        type: "object",
+                        description: "線條顏色 RGB（可選）",
+                        properties: {
+                            r: { type: "number", minimum: 0, maximum: 255 },
+                            g: { type: "number", minimum: 0, maximum: 255 },
+                            b: { type: "number", minimum: 0, maximum: 255 },
+                        },
+                    },
+                    transparency: {
+                        type: "number",
+                        description: "透明度 (0-100)，0 為不透明",
+                        minimum: 0,
+                        maximum: 100,
+                        default: 0,
+                    },
+                },
+                required: ["elementId"],
+            },
+        },
+
+        // 28. 清除元素圖形覆寫
+        {
+            name: "clear_element_override",
+            description: "清除元素在指定視圖中的圖形覆寫，恢復為預設顯示。",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    elementId: {
+                        type: "number",
+                        description: "要清除覆寫的元素 ID",
+                    },
+                    elementIds: {
+                        type: "array",
+                        items: { type: "number" },
+                        description: "要清除覆寫的元素 ID 列表（批次操作）",
+                    },
+                    viewId: {
+                        type: "number",
+                        description: "視圖 ID（若不指定則使用當前視圖）",
+                    },
+                },
+            },
+        },
     ];
 }
 

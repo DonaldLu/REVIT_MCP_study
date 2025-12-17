@@ -165,6 +165,22 @@ namespace RevitMCP.Core
                         result = QueryElements(parameters);
                         break;
                     
+                    case "override_element_graphics":
+                        result = OverrideElementGraphics(parameters);
+                        break;
+                    
+                    case "clear_element_override":
+                        result = ClearElementOverride(parameters);
+                        break;
+                    
+                    case "unjoin_wall_joins":
+                        result = UnjoinWallJoins(parameters);
+                        break;
+                    
+                    case "rejoin_wall_joins":
+                        result = RejoinWallJoins(parameters);
+                        break;
+                    
                     default:
                         throw new NotImplementedException($"未實作的命令: {request.CommandName}");
                 }
@@ -1535,6 +1551,14 @@ namespace RevitMCP.Core
                     {
                         elements = collector.OfCategory(BuiltInCategory.OST_Rooms).ToElements().ToList();
                     }
+                    else if (categoryName.Equals("StructuralColumns", StringComparison.OrdinalIgnoreCase))
+                    {
+                        elements = collector.OfCategory(BuiltInCategory.OST_StructuralColumns).ToElements().ToList();
+                    }
+                    else if (categoryName.Equals("Columns", StringComparison.OrdinalIgnoreCase))
+                    {
+                        elements = collector.OfCategory(BuiltInCategory.OST_Columns).ToElements().ToList();
+                    }
                     else
                     {
                         throw new Exception($"不支援的類別: {categoryName}");
@@ -1577,6 +1601,387 @@ namespace RevitMCP.Core
             {
                  throw new Exception($"QueryElements 錯誤: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 覆寫元素圖形顯示
+        /// 支援平面圖（切割樣式）和立面圖/剖面圖（表面樣式）
+        /// </summary>
+        private object OverrideElementGraphics(JObject parameters)
+        {
+            Document doc = _uiApp.ActiveUIDocument.Document;
+            int elementId = parameters["elementId"].Value<int>();
+            int? viewId = parameters["viewId"]?.Value<int>();
+
+            // 取得視圖
+            View view;
+            if (viewId.HasValue)
+            {
+                view = doc.GetElement(new ElementId(viewId.Value)) as View;
+                if (view == null)
+                    throw new Exception($"找不到視圖 ID: {viewId}");
+            }
+            else
+            {
+                view = _uiApp.ActiveUIDocument.ActiveView;
+            }
+
+            // 取得元素
+            Element element = doc.GetElement(new ElementId(elementId));
+            if (element == null)
+                throw new Exception($"找不到元素 ID: {elementId}");
+
+            // 判斷使用切割樣式或表面樣式
+            // patternMode: "auto" (自動根據視圖類型), "cut" (切割), "surface" (表面)
+            string patternMode = parameters["patternMode"]?.Value<string>() ?? "auto";
+            
+            bool useCutPattern = false;
+            if (patternMode == "cut")
+            {
+                useCutPattern = true;
+            }
+            else if (patternMode == "surface")
+            {
+                useCutPattern = false;
+            }
+            else // auto
+            {
+                // 平面圖、天花板平面圖使用切割樣式
+                // 立面圖、剖面圖、3D 視圖使用表面樣式
+                useCutPattern = (view.ViewType == ViewType.FloorPlan || 
+                                 view.ViewType == ViewType.CeilingPlan ||
+                                 view.ViewType == ViewType.AreaPlan ||
+                                 view.ViewType == ViewType.EngineeringPlan);
+            }
+
+            using (Transaction trans = new Transaction(doc, "Override Element Graphics"))
+            {
+                trans.Start();
+
+                // 建立覆寫設定
+                OverrideGraphicSettings overrideSettings = new OverrideGraphicSettings();
+
+                // 取得實心填滿圖樣 ID
+                ElementId solidPatternId = GetSolidFillPatternId(doc);
+
+                // 設定填滿顏色
+                if (parameters["surfaceFillColor"] != null)
+                {
+                    var colorObj = parameters["surfaceFillColor"];
+                    byte r = (byte)colorObj["r"].Value<int>();
+                    byte g = (byte)colorObj["g"].Value<int>();
+                    byte b = (byte)colorObj["b"].Value<int>();
+                    Color fillColor = new Color(r, g, b);
+
+                    if (useCutPattern)
+                    {
+                        // 平面圖：使用切割樣式（前景）
+                        overrideSettings.SetCutForegroundPatternColor(fillColor);
+                        if (solidPatternId != null && solidPatternId != ElementId.InvalidElementId)
+                        {
+                            overrideSettings.SetCutForegroundPatternId(solidPatternId);
+                            overrideSettings.SetCutForegroundPatternVisible(true);
+                        }
+                    }
+                    else
+                    {
+                        // 立面圖/剖面圖：使用表面樣式
+                        overrideSettings.SetSurfaceForegroundPatternColor(fillColor);
+                        if (solidPatternId != null && solidPatternId != ElementId.InvalidElementId)
+                        {
+                            overrideSettings.SetSurfaceForegroundPatternId(solidPatternId);
+                            overrideSettings.SetSurfaceForegroundPatternVisible(true);
+                        }
+                    }
+                }
+
+                // 設定線條顏色（可選）
+                if (parameters["lineColor"] != null)
+                {
+                    var lineColorObj = parameters["lineColor"];
+                    byte r = (byte)lineColorObj["r"].Value<int>();
+                    byte g = (byte)lineColorObj["g"].Value<int>();
+                    byte b = (byte)lineColorObj["b"].Value<int>();
+                    Color lineColor = new Color(r, g, b);
+                    
+                    if (useCutPattern)
+                    {
+                        overrideSettings.SetCutLineColor(lineColor);
+                    }
+                    else
+                    {
+                        overrideSettings.SetProjectionLineColor(lineColor);
+                    }
+                }
+
+                // 設定透明度
+                int transparency = parameters["transparency"]?.Value<int>() ?? 0;
+                if (transparency > 0)
+                {
+                    overrideSettings.SetSurfaceTransparency(transparency);
+                }
+
+                // 應用覆寫
+                view.SetElementOverrides(new ElementId(elementId), overrideSettings);
+
+                trans.Commit();
+
+                return new
+                {
+                    Success = true,
+                    ElementId = elementId,
+                    ViewId = view.Id.IntegerValue,
+                    ViewType = view.ViewType.ToString(),
+                    PatternMode = useCutPattern ? "Cut" : "Surface",
+                    ViewName = view.Name,
+                    Message = $"已成功覆寫元素 {elementId} 在視圖 '{view.Name}' 的圖形顯示"
+                };
+            }
+        }
+
+        /// <summary>
+        /// 清除元素圖形覆寫
+        /// </summary>
+        private object ClearElementOverride(JObject parameters)
+        {
+            Document doc = _uiApp.ActiveUIDocument.Document;
+            int? singleElementId = parameters["elementId"]?.Value<int>();
+            var elementIdsArray = parameters["elementIds"] as JArray;
+            int? viewId = parameters["viewId"]?.Value<int>();
+
+            // 取得視圖
+            View view;
+            if (viewId.HasValue)
+            {
+                view = doc.GetElement(new ElementId(viewId.Value)) as View;
+                if (view == null)
+                    throw new Exception($"找不到視圖 ID: {viewId}");
+            }
+            else
+            {
+                view = _uiApp.ActiveUIDocument.ActiveView;
+            }
+
+            // 收集要清除的元素 ID
+            List<int> elementIds = new List<int>();
+            if (singleElementId.HasValue)
+            {
+                elementIds.Add(singleElementId.Value);
+            }
+            if (elementIdsArray != null)
+            {
+                elementIds.AddRange(elementIdsArray.Select(id => id.Value<int>()));
+            }
+
+            if (elementIds.Count == 0)
+            {
+                throw new Exception("請提供至少一個元素 ID");
+            }
+
+            using (Transaction trans = new Transaction(doc, "Clear Element Override"))
+            {
+                trans.Start();
+
+                int successCount = 0;
+                foreach (int elemId in elementIds)
+                {
+                    Element element = doc.GetElement(new ElementId(elemId));
+                    if (element != null)
+                    {
+                        // 設定空的覆寫設定 = 重置為預設
+                        view.SetElementOverrides(new ElementId(elemId), new OverrideGraphicSettings());
+                        successCount++;
+                    }
+                }
+
+                trans.Commit();
+
+                return new
+                {
+                    Success = true,
+                    ClearedCount = successCount,
+                    ViewId = view.Id.IntegerValue,
+                    ViewName = view.Name,
+                    Message = $"已清除 {successCount} 個元素在視圖 '{view.Name}' 的圖形覆寫"
+                };
+            }
+        }
+
+        /// <summary>
+        /// 取得實心填滿圖樣 ID
+        /// </summary>
+        private ElementId GetSolidFillPatternId(Document doc)
+        {
+            // 嘗試找到實心填滿圖樣
+            FilteredElementCollector collector = new FilteredElementCollector(doc);
+            var fillPatterns = collector
+                .OfClass(typeof(FillPatternElement))
+                .Cast<FillPatternElement>()
+                .Where(fp => fp.GetFillPattern().IsSolidFill)
+                .ToList();
+
+            if (fillPatterns.Any())
+            {
+                return fillPatterns.First().Id;
+            }
+
+            return ElementId.InvalidElementId;
+        }
+
+        // 靜態變數：儲存取消接合的元素對
+        private static List<Tuple<ElementId, ElementId>> _unjoinedPairs = new List<Tuple<ElementId, ElementId>>();
+
+        /// <summary>
+        /// 取消牆體與其他元素（柱子等）的接合關係
+        /// </summary>
+        private object UnjoinWallJoins(JObject parameters)
+        {
+            Document doc = _uiApp.ActiveUIDocument.Document;
+            
+            // 取得牆體 ID 列表
+            var wallIdsArray = parameters["wallIds"] as JArray;
+            int? viewId = parameters["viewId"]?.Value<int>();
+            
+            List<int> wallIds = new List<int>();
+            if (wallIdsArray != null)
+            {
+                wallIds.AddRange(wallIdsArray.Select(id => id.Value<int>()));
+            }
+            
+            // 如果沒有提供 wallIds，則查詢視圖中所有牆體
+            if (wallIds.Count == 0 && viewId.HasValue)
+            {
+                var collector = new FilteredElementCollector(doc, new ElementId(viewId.Value));
+                var walls = collector.OfClass(typeof(Wall)).ToElements();
+                wallIds = walls.Select(w => w.Id.IntegerValue).ToList();
+            }
+            
+            if (wallIds.Count == 0)
+            {
+                throw new Exception("請提供 wallIds 或 viewId 參數");
+            }
+
+            int unjoinedCount = 0;
+            _unjoinedPairs.Clear();
+
+            using (Transaction trans = new Transaction(doc, "Unjoin Wall Geometry"))
+            {
+                trans.Start();
+
+                foreach (int wallId in wallIds)
+                {
+                    Wall wall = doc.GetElement(new ElementId(wallId)) as Wall;
+                    if (wall == null) continue;
+
+                    // 取得牆體的 BoundingBox 來找附近的柱子
+                    BoundingBoxXYZ bbox = wall.get_BoundingBox(null);
+                    if (bbox == null) continue;
+
+                    // 擴大搜尋範圍
+                    XYZ min = bbox.Min - new XYZ(1, 1, 1);
+                    XYZ max = bbox.Max + new XYZ(1, 1, 1);
+                    Outline outline = new Outline(min, max);
+
+                    // 查詢附近的柱子
+                    var columnCollector = new FilteredElementCollector(doc)
+                        .OfCategory(BuiltInCategory.OST_Columns)
+                        .WherePasses(new BoundingBoxIntersectsFilter(outline));
+                    
+                    var structColumnCollector = new FilteredElementCollector(doc)
+                        .OfCategory(BuiltInCategory.OST_StructuralColumns)
+                        .WherePasses(new BoundingBoxIntersectsFilter(outline));
+
+                    var columns = columnCollector.ToElements().Concat(structColumnCollector.ToElements());
+
+                    foreach (Element column in columns)
+                    {
+                        try
+                        {
+                            if (JoinGeometryUtils.AreElementsJoined(doc, wall, column))
+                            {
+                                JoinGeometryUtils.UnjoinGeometry(doc, wall, column);
+                                _unjoinedPairs.Add(new Tuple<ElementId, ElementId>(wall.Id, column.Id));
+                                unjoinedCount++;
+                            }
+                        }
+                        catch
+                        {
+                            // 忽略無法取消接合的元素
+                        }
+                    }
+                }
+
+                trans.Commit();
+            }
+
+            return new
+            {
+                Success = true,
+                UnjoinedCount = unjoinedCount,
+                WallCount = wallIds.Count,
+                StoredPairs = _unjoinedPairs.Count,
+                Message = $"已取消 {unjoinedCount} 個接合關係"
+            };
+        }
+
+        /// <summary>
+        /// 恢復之前取消的接合關係
+        /// </summary>
+        private object RejoinWallJoins(JObject parameters)
+        {
+            Document doc = _uiApp.ActiveUIDocument.Document;
+            
+            if (_unjoinedPairs.Count == 0)
+            {
+                return new
+                {
+                    Success = true,
+                    RejoinedCount = 0,
+                    Message = "沒有需要恢復的接合關係"
+                };
+            }
+
+            int rejoinedCount = 0;
+
+            using (Transaction trans = new Transaction(doc, "Rejoin Wall Geometry"))
+            {
+                trans.Start();
+
+                foreach (var pair in _unjoinedPairs)
+                {
+                    try
+                    {
+                        Element elem1 = doc.GetElement(pair.Item1);
+                        Element elem2 = doc.GetElement(pair.Item2);
+                        
+                        if (elem1 != null && elem2 != null)
+                        {
+                            if (!JoinGeometryUtils.AreElementsJoined(doc, elem1, elem2))
+                            {
+                                JoinGeometryUtils.JoinGeometry(doc, elem1, elem2);
+                                rejoinedCount++;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // 忽略無法恢復接合的元素
+                    }
+                }
+
+                trans.Commit();
+            }
+
+            int storedCount = _unjoinedPairs.Count;
+            _unjoinedPairs.Clear();
+
+            return new
+            {
+                Success = true,
+                RejoinedCount = rejoinedCount,
+                TotalPairs = storedCount,
+                Message = $"已恢復 {rejoinedCount} 個接合關係"
+            };
         }
 
         #endregion
