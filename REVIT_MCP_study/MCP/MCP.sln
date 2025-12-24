@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RevitMCP.2024", "RevitMCP.2024.csproj", "{CF0BE3CC-6131-A18D-BA87-280685FDAF4B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RevitMCP", "RevitMCP.csproj", "{94F18D26-A2F9-81BF-9BB5-F80021CE6AFE}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{CF0BE3CC-6131-A18D-BA87-280685FDAF4B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CF0BE3CC-6131-A18D-BA87-280685FDAF4B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CF0BE3CC-6131-A18D-BA87-280685FDAF4B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CF0BE3CC-6131-A18D-BA87-280685FDAF4B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{94F18D26-A2F9-81BF-9BB5-F80021CE6AFE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{94F18D26-A2F9-81BF-9BB5-F80021CE6AFE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{94F18D26-A2F9-81BF-9BB5-F80021CE6AFE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{94F18D26-A2F9-81BF-9BB5-F80021CE6AFE}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {3EAAA03E-3CB5-49D4-976C-4FD9FBD54DDD}
+	EndGlobalSection
+EndGlobal
